@@ -38,23 +38,22 @@ rnn_tuple_state = tuple(
 W2 = tf.Variable(np.random.rand(state_size, num_classes), dtype=tf.float32)
 b2 = tf.Variable(np.zeros((1, num_classes)), dtype=tf.float32)
 
-# Unpack columns
-#inputs_series = tf.split(batchX_placeholder, truncated_backprop_length, axis=1)
-inputs_series = tf.split(axis=1, num_or_size_splits=truncated_backprop_length, value=batchX_placeholder)
-labels_series = tf.unstack(batchY_placeholder, axis=1)
-
 stacked_rnn = []
 for _ in range(num_layers):
     stacked_rnn.append(tf.contrib.rnn.LSTMCell(state_size, state_is_tuple=True))
 
 cell = tf.nn.rnn_cell.MultiRNNCell(stacked_rnn, state_is_tuple=True)
 
-states_series, current_state = tf.contrib.rnn.static_rnn(cell, inputs_series, initial_state=rnn_tuple_state)
+states_series, current_state = tf.nn.dynamic_rnn(cell, tf.expand_dims(batchX_placeholder, -1), initial_state=rnn_tuple_state)
+states_series = tf.reshape(states_series, [-1, state_size])
 
-logits_series = [tf.matmul(state, W2) + b2 for state in states_series] #Broadcasted addition
-predictions_series = [tf.nn.softmax(logits) for logits in logits_series]
+logits = tf.matmul(states_series, W2) + b2 #Broadcasted addition
+labels = tf.reshape(batchY_placeholder, [-1])
 
-losses = [tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=labels) for logits, labels in zip(logits_series,labels_series)]
+logits_series = tf.unstack(tf.reshape(logits, [batch_size, truncated_backprop_length, num_classes]), axis=1)
+predictions_series = [tf.nn.softmax(logit) for logit in logits_series]
+
+losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=labels)
 total_loss = tf.reduce_mean(losses)
 
 train_step = tf.train.AdagradOptimizer(0.3).minimize(total_loss)
