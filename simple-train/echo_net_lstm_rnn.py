@@ -13,6 +13,7 @@ num_classes = 2
 echo_step = 3
 batch_size = 5
 num_batches = total_series_length//batch_size//truncated_backprop_length
+num_layers = 3
 
 def generateData():
     x = np.array(np.random.choice(2, total_series_length, p=[0.5, 0.5]))
@@ -25,11 +26,14 @@ def generateData():
 batchX_placeholder = tf.placeholder(tf.float32, [batch_size, truncated_backprop_length])
 batchY_placeholder = tf.placeholder(tf.int32, [batch_size, truncated_backprop_length])
 
-init_state = tf.placeholder(tf.float32, [batch_size, state_size])
-cell_state = tf.placeholder(tf.float32, [batch_size, state_size])
-hidden_state = tf.placeholder(tf.float32, [batch_size, state_size])
-# init_state = tf.nn.rnn_cell.LSTMStateTuple(cell_state, hidden_state)
-init_state = tf.contrib.rnn.LSTMStateTuple(cell_state, hidden_state)
+init_state = tf.placeholder(tf.float32, [num_layers, 2, batch_size, state_size])
+
+state_per_layer_list = tf.unstack(init_state, axis=0)
+rnn_tuple_state = tuple(
+        [tf.nn.rnn_cell.LSTMStateTuple(state_per_layer_list[idx][0,:,:],
+            state_per_layer_list[idx][1,:,:])
+     for idx in range(num_layers)]
+)
 
 W2 = tf.Variable(np.random.rand(state_size, num_classes), dtype=tf.float32)
 b2 = tf.Variable(np.zeros((1, num_classes)), dtype=tf.float32)
@@ -39,9 +43,13 @@ b2 = tf.Variable(np.zeros((1, num_classes)), dtype=tf.float32)
 inputs_series = tf.split(axis=1, num_or_size_splits=truncated_backprop_length, value=batchX_placeholder)
 labels_series = tf.unstack(batchY_placeholder, axis=1)
 
-# Forward passes
-cell = tf.contrib.rnn.BasicLSTMCell(state_size, state_is_tuple=True)
-states_series, current_state = tf.contrib.rnn.static_rnn(cell, inputs_series, init_state)
+stacked_rnn = []
+for _ in range(num_layers):
+    stacked_rnn.append(tf.contrib.rnn.LSTMCell(state_size, state_is_tuple=True))
+
+cell = tf.nn.rnn_cell.MultiRNNCell(stacked_rnn, state_is_tuple=True)
+
+states_series, current_state = tf.contrib.rnn.static_rnn(cell, inputs_series, initial_state=rnn_tuple_state)
 
 logits_series = [tf.matmul(state, W2) + b2 for state in states_series] #Broadcasted addition
 predictions_series = [tf.nn.softmax(logits) for logits in logits_series]
@@ -82,9 +90,7 @@ with tf.Session() as sess:
 
     for epoch_idx in range(num_epochs):
         x,y = generateData()
-        # _current_state = np.zeros((batch_size, state_size))
-        _current_cell_state = np.zeros((batch_size, state_size))
-        _current_hidden_state = np.zeros((batch_size, state_size))
+        _current_state = np.zeros((num_layers, 2, batch_size, state_size))
 
         for batch_idx in range(num_batches):
             start_idx = batch_idx * truncated_backprop_length
@@ -93,26 +99,14 @@ with tf.Session() as sess:
             batchX = x[:,start_idx:end_idx]
             batchY = y[:,start_idx:end_idx]
 
-            # _total_loss, _train_step, _current_state, _predictions_series = sess.run(
-                # [total_loss, train_step, current_state, predictions_series],
-                # feed_dict={
-                    # batchX_placeholder:batchX,
-                    # batchY_placeholder:batchY,
-                    # init_state:_current_state
-                # })
-
-            # loss_list.append(_total_loss)
-
             _total_loss, _train_step, _current_state, _predictions_series = sess.run(
                 [total_loss, train_step, current_state, predictions_series],
                 feed_dict={
-                        batchX_placeholder: batchX,
-                        batchY_placeholder: batchY,
-                        cell_state: _current_cell_state,
-                        hidden_state: _current_hidden_state
+                    batchX_placeholder:batchX,
+                    batchY_placeholder:batchY,
+                    init_state:_current_state
                 })
 
-            _current_cell_state, _current_hidden_state = _current_state
             loss_list.append(_total_loss)
 
             if batch_idx%100 == 0:
