@@ -28,7 +28,8 @@ batchY_placeholder = tf.placeholder(tf.int32, [batch_size, truncated_backprop_le
 init_state = tf.placeholder(tf.float32, [batch_size, state_size])
 cell_state = tf.placeholder(tf.float32, [batch_size, state_size])
 hidden_state = tf.placeholder(tf.float32, [batch_size, state_size])
-init_state = tf.nn.rnn_cell.LSTMStateTuple(cell_state, hidden_state)
+# init_state = tf.nn.rnn_cell.LSTMStateTuple(cell_state, hidden_state)
+init_state = tf.contrib.rnn.LSTMStateTuple(cell_state, hidden_state)
 
 W2 = tf.Variable(np.random.rand(state_size, num_classes), dtype=tf.float32)
 b2 = tf.Variable(np.zeros((1, num_classes)), dtype=tf.float32)
@@ -39,9 +40,8 @@ inputs_series = tf.split(axis=1, num_or_size_splits=truncated_backprop_length, v
 labels_series = tf.unstack(batchY_placeholder, axis=1)
 
 # Forward passes
-cell = tf.contrib.rnn.BasicLSTMCell(state_size)
-cell = tf.nn.rnn_cell.MultiRNNCell(cells=[cell] * 4, state_is_tuple=True)
-states_series, current_state = tf.nn.static_rnn(cell, inputs_series, init_state)
+cell = tf.contrib.rnn.BasicLSTMCell(state_size, state_is_tuple=True)
+states_series, current_state = tf.contrib.rnn.static_rnn(cell, inputs_series, init_state)
 
 logits_series = [tf.matmul(state, W2) + b2 for state in states_series] #Broadcasted addition
 predictions_series = [tf.nn.softmax(logits) for logits in logits_series]
@@ -113,6 +113,7 @@ with tf.Session() as sess:
                 })
 
             _current_cell_state, _current_hidden_state = _current_state
+            loss_list.append(_total_loss)
 
             if batch_idx%100 == 0:
                 print("Step",batch_idx, "Loss", _total_loss, "Epoc", epoch_idx)
