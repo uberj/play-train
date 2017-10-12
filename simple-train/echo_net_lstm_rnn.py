@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 num_epochs = 50
 total_series_length = 50000
 truncated_backprop_length = 15
-state_size = 4
+state_size = 16
 num_classes = 2
 echo_step = 3
 batch_size = 5
@@ -40,7 +40,9 @@ b2 = tf.Variable(np.zeros((1, num_classes)), dtype=tf.float32)
 
 stacked_rnn = []
 for _ in range(num_layers):
-    stacked_rnn.append(tf.contrib.rnn.LSTMCell(state_size, state_is_tuple=True))
+    cell = tf.contrib.rnn.LSTMCell(state_size, state_is_tuple=True)
+    cell = tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob=0.5)
+    stacked_rnn.append(cell)
 
 cell = tf.nn.rnn_cell.MultiRNNCell(stacked_rnn, state_is_tuple=True)
 
@@ -56,7 +58,9 @@ predictions_series = [tf.nn.softmax(logit) for logit in logits_series]
 losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=labels)
 total_loss = tf.reduce_mean(losses)
 
+# Why does Ada grad suck so bad at this?
 train_step = tf.train.AdagradOptimizer(0.3).minimize(total_loss)
+# train_step = tf.train.GradientDescentOptimizer(0.3).minimize(total_loss)
 
 def plot(loss_list, predictions_series, batchX, batchY):
     plt.subplot(2, 3, 1)
